@@ -1,0 +1,411 @@
+﻿// ========================================
+// GPU布料模拟Compute Shader
+// 实现基于质点弹簧系统的高性能布料物理模拟
+// ========================================
+
+// 声明三个计算函数（Kernels）
+#pragma kernel Init    // 初始化质点位置和速度
+#pragma kernel StepV   // 计算受力和更新速度
+#pragma kernel StepP   // 根据速度更新位置
+
+// ========================================
+// 数据结构定义
+// ========================================
+
+/// <summary>所有质点的位置缓冲区 - float4(x,y,z,w) 其中w用于渲染</summary>
+RWStructuredBuffer<float4> positions;
+
+/// <summary>所有质点的速度缓冲区 - float3(vx,vy,vz)</summary>
+RWStructuredBuffer<float3> velocities;
+
+/// <summary>法线缓冲区 - float4(nx,ny,nz,w) 用于光照计算</summary>
+RWStructuredBuffer<float4> normals;
+
+// ========================================
+// 模拟参数
+// ========================================
+
+/// <summary>网格尺寸 - x=横向质点数, y=纵向质点数, z=总质点数</summary>
+uint4 size;
+
+/// <summary>弹性系数 - x=结构弹簧, y=剪力弹簧, z=弯曲弹簧</summary>
+float3 springKs;
+
+/// <summary>弹簧静止长度 - x=结构弹簧, y=剪力弹簧, z=弯曲弹簧</summary>
+uniform float3 restLengths;
+
+/// <summary>单个质点的质量</summary>
+uniform float mass;
+
+/// <summary>阻尼系数 - 模拟能量耗散</summary>
+#define Cd 0.5
+
+/// <summary>风力参数 - xyz=风向和强度, w=法线乘数</summary>
+float4 viscousFluidArgs;
+#define Uf viscousFluidArgs.xyz  // 风力向量
+#define Cv viscousFluidArgs.w    // 风力系数
+
+/// <summary>时间步长 - 单次物理迭代的时间间隔</summary>
+float deltaTime;
+#define dt deltaTime
+
+/// <summary>总质点数量</summary>
+#define totalParticleCount size.z
+
+/// <summary>结构弹簧静止长度</summary>
+#define L0 restLengths.x
+
+/// <summary>质点质量</summary>
+#define M mass
+
+/// <summary>球形碰撞体 - xyz=球心位置, w=半径</summary>
+uniform float4 collisionBall;
+
+/// <summary>人物肩膀位置 - 用于披风固定点</summary>
+uniform float3 characterPosition;
+
+
+
+// ========================================
+// 弹簧连接定义
+// ========================================
+
+/// <summary>
+/// 弹簧连接方向数组 - 定义每个质点连接的12个邻居
+/// 每个质点与周围12个质点通过弹簧连接，模拟布料的三种力学特性
+/// </summary>
+static uint2 SpringDirs[12] = {
+    // 结构弹簧 (0-3)：上下左右相邻，模拟拉伸和压缩
+    {1,0},   // 右边
+    {0,1},   // 上边
+    {-1,0},  // 左边
+    {0,-1},  // 下边
+    
+    // 剪力弹簧 (4-7)：对角线连接，防止过度变形
+    {-1,-1}, // 左下对角线
+    {-1,1},  // 左上对角线
+    {1,-1},  // 右下对角线
+    {1,1},   // 右上对角线
+    
+    // 弯曲弹簧 (8-11)：跨一个位置连接，模拟弯曲刚度
+    {-2,0},  // 左跨一个
+    {2,0},   // 右跨一个
+    {0,2},   // 上跨一个
+    {0,-2},  // 下跨一个
+};
+
+
+// ========================================
+// 工具函数
+// ========================================
+
+/// <summary>将2D网格坐标转换为1D数组索引</summary>
+/// <param name="id">2D坐标 (x,y)</param>
+/// <returns>1D数组索引</returns>
+static uint getIndex(uint2 id){
+    return id.y * size.x + id.x;
+}
+
+/// <summary>通过索引获取质点位置</summary>
+/// <param name="index">质点索引</param>
+/// <returns>位置向量 (x,y,z)</returns>
+static float3 getPosition(uint index){
+    return positions[index].xyz;
+}
+
+/// <summary>通过2D坐标获取质点位置</summary>
+/// <param name="id">2D坐标</param>
+/// <returns>位置向量 (x,y,z)</returns>
+static float3 getPosition(uint2 id){
+    return positions[getIndex(id)].xyz;
+}
+
+/// <summary>通过索引获取质点速度</summary>
+/// <param name="index">质点索引</param>
+/// <returns>速度向量 (vx,vy,vz)</returns>
+static float3 getVelocity(uint index){
+    return velocities[index];
+}
+
+/// <summary>通过索引获取质点法线</summary>
+/// <param name="index">质点索引</param>
+/// <returns>法线向量 (nx,ny,nz)</returns>
+static float3 getNormal(uint index){
+    return normals[index].xyz;
+}
+
+/// <summary>设置质点速度</summary>
+/// <param name="index">质点索引</param>
+/// <param name="vel">新的速度向量</param>
+static void setVelocity(uint index, float3 vel){
+    velocities[index] = vel;
+}
+
+/// <summary>设置质点位置</summary>
+/// <param name="index">质点索引</param>
+/// <param name="pos">新的位置向量</param>
+static void setPosition(uint index, float3 pos){
+    positions[index] = float4(pos, 1);  // w分量设为1用于渲染
+}
+
+/// <summary>检查2D坐标是否在有效范围内</summary>
+/// <param name="id">2D坐标</param>
+/// <returns>是否有效</returns>
+static bool isValidateId(uint2 id){
+    return id.x >= 0 && id.x < size.x && id.y >= 0 && id.y < size.y;
+}
+
+// ========================================
+// 物理计算函数
+// ========================================
+
+/// <summary>
+/// 计算弹簧力 - 基于胡克定律
+/// F = k * (当前长度 - 静止长度) * 方向向量
+/// </summary>
+/// <param name="p">当前质点位置</param>
+/// <param name="q">邻居质点位置</param>
+/// <param name="springType">弹簧类型：0=结构, 1=剪力, 2=弯曲</param>
+/// <returns>弹簧力向量</returns>
+static float3 getSpring(float3 p, float3 q, uint springType){
+    float3 dp = p - q;                    // 从q指向p的向量
+    float len = length(dp);               // 当前弹簧长度
+    float restL = restLengths[springType]; // 静止长度
+    
+    // 胡克定律：F = k * (伸缩比例) * 方向
+    // restL * rcp(len) - 1 计算伸缩比例
+    return dp * (springKs[springType] * (restL * rcp(len) - 1));
+}
+
+
+/// <summary>
+/// 计算质点受到的总力 - 核心物理计算函数
+/// 包括：弹性力、阻尼力、重力、风力
+/// </summary>
+/// <param name="id">质点2D坐标</param>
+/// <param name="position">质点位置</param>
+/// <param name="velocity">质点速度</param>
+/// <returns>总力向量</returns>
+static float3 calculateF(uint2 id, float3 position, float3 velocity){
+    uint index = getIndex(id);
+    float3 f = float3(0,0,0);  // 总力初始化为0
+    
+    // 1. 计算弹性力 - 遍历12个连接的邻居
+    for(uint i = 0; i < 12; i++){
+        uint2 nId = id + SpringDirs[i];  // 邻居坐标
+        if(isValidateId(nId)){           // 检查邻居是否有效
+            float3 nPos = getPosition(getIndex(nId));  // 邻居位置
+            f += getSpring(position, nPos, i / 4);     // 计算弹簧力并累加
+        }
+    }
+    
+    // 2. 阻尼力 - 与速度方向相反，模拟能量耗散
+    float3 fd = -Cd * velocity;
+    f += fd;
+
+    // 3. 重力 - 垂直向下的力
+    float3 fg = float3(0, -9.8, 0) * M;  // 重力加速度 * 质量
+    f += fg;
+
+    // 4. 风力 - 基于法线方向的风力模拟
+    float3 normal = getNormal(index);
+    float3 fv = Cv * (dot(normal, Uf - velocity)) * normal;
+    f += fv;
+
+    return f;
+}
+
+/// <summary>计算质点受力的简化版本 - 自动获取位置和速度</summary>
+/// <param name="id">质点2D坐标</param>
+/// <returns>总力向量</returns>
+static float3 calculateF(uint2 id){
+    uint index = getIndex(id);
+    return calculateF(id, getPosition(index), getVelocity(index));
+}
+
+
+/// <summary>法线计算用的方向数组 - 用于计算质点法线</summary>
+static uint2 normalCompuDirs[4] = {
+    {1,0},   // 右
+    {0,1},   // 上
+    {-1,0},  // 左
+    {0,-1},  // 下
+};
+
+/// <summary>
+/// 更新质点法线 - 用于光照计算
+/// 通过相邻质点计算表面法线
+/// </summary>
+/// <param name="id">质点2D坐标</param>
+static void updateNormal(uint2 id){
+    float3 p = getPosition(id);
+    float3 normal = float3(0,0,0);
+    
+    // 尝试计算法线 - 使用相邻的三角形
+    for(uint i = 0; i < 4; i++){
+        uint j = (i + 1) % 4;  // 下一个相邻方向
+        uint2 id1 = id + normalCompuDirs[i];
+        uint2 id2 = id + normalCompuDirs[j];
+        
+        // 检查两个邻居是否都存在
+        if(isValidateId(id1) && isValidateId(id2)){
+            float3 p1 = getPosition(id1);
+            float3 p2 = getPosition(id2);
+            float3 e1 = p1 - p;  // 边向量1
+            float3 e2 = p2 - p;  // 边向量2
+            float3 n = normalize(cross(e1, e2));  // 叉积得到法线
+            normal += n;
+            break;  // 找到一个有效的三角形就退出
+        }
+    }
+    
+    normal = normalize(normal);  // 归一化法线
+    normals[getIndex(id)] = float4(normal, 0);  // 存储法线
+}
+
+/// <summary>
+/// 检测和处理球形碰撞
+/// 当质点进入球体内部时，将其推出并反射速度
+/// </summary>
+/// <param name="id">质点2D坐标</param>
+static void detechBallCollision(uint2 id){
+    uint index = getIndex(id);
+    float3 pos = getPosition(index);
+    float3 bCenter = collisionBall.xyz;  // 球心位置
+    float bRadius = collisionBall.w;     // 球体半径
+    
+    // 计算质点到球心的距离
+    float disToBall = distance(pos, bCenter) - bRadius;
+    
+    // 如果质点进入球体内部
+    if(disToBall < 0){
+        // 计算从球心指向质点的单位向量
+        float3 e = normalize(pos - bCenter);
+        
+        // 将质点推出到球体表面
+        pos = pos - disToBall * e;
+        
+        // 获取当前速度
+        float3 v = getVelocity(index);
+        
+        // 速度反射：移除朝向球心的速度分量
+        v = v - dot(v, e) * e;
+        
+        // 更新质点的位置和速度
+        setVelocity(index, v);
+        setPosition(index, pos);
+    }
+}
+
+/// <summary>
+/// 更新质点速度 - 基于牛顿第二定律
+/// F = ma, v = v + a*dt
+/// </summary>
+/// <param name="id">质点2D坐标</param>
+static void stepVelocity(uint2 id){
+    uint index = getIndex(id);
+    float3 f = calculateF(id);        // 计算总受力
+    float3 a = f * rcp(M);           // 计算加速度 a = F/m
+    float3 velocity = getVelocity(index);
+    velocity = velocity + a * dt;    // 更新速度 v = v + a*dt
+    velocities[index] = velocity;    // 存储新速度
+    updateNormal(id);                // 更新法线
+}
+
+/// <summary>
+/// 更新质点位置 - 基于速度积分
+/// x = x + v*dt
+/// </summary>
+/// <param name="id">质点2D坐标</param>
+static void stepPosition(uint2 id){
+    uint index = getIndex(id);
+    float3 velocity = getVelocity(index);
+    float3 position = getPosition(index);
+    position += velocity * dt;       // 更新位置 x = x + v*dt
+    setPosition(index, position);    // 存储新位置
+    
+    detechBallCollision(id);         // 检测和处理碰撞
+}
+
+
+// ========================================
+// GPU线程配置
+// ========================================
+#define THREAD_X 8  // 每个线程组X方向线程数
+#define THREAD_Y 8  // 每个线程组Y方向线程数
+
+// ========================================
+// GPU计算函数 (Kernels)
+// ========================================
+
+/// <summary>
+/// 初始化Kernel - 设置质点的初始位置和速度
+/// 将32x32的质点排列成平面网格
+/// </summary>
+/// <param name="id">线程ID，对应质点的2D坐标</param>
+[numthreads(THREAD_X, THREAD_Y, 1)]
+void Init (uint3 id : SV_DispatchThreadID)
+{
+    uint index = getIndex(id.xy);
+    
+    // 计算披风形状：从肩膀的窄处到下方的宽处
+    float widthRatio = (float)id.x / (size.x - 1);  // 0到1
+    float lengthRatio = (float)id.y / (size.y - 1); // 0到1
+    
+    // 计算披风宽度：从肩膀的窄处到下方的宽处
+    float currentWidth = 0.6f + 1.4f * lengthRatio;  // 从0.6到2.0
+    
+    // 计算位置：以肩膀为中心，向下展开
+    float x = (widthRatio - 0.5f) * currentWidth;
+    float y = -lengthRatio * 2.5f;  // 向下延伸2.5米
+    float z = 0;
+    
+    // 设置初始位置：披风形状
+    positions[index] = float4(x, y, z, 0);
+    
+    // 初始速度为0
+    velocities[index] = float3(0, 0, 0);
+    
+    // 初始法线向上
+    normals[index] = float4(0, 1, 0, 0);
+}
+
+/// <summary>
+/// 速度更新Kernel - 计算受力和更新速度
+/// 每个线程处理一个质点
+/// </summary>
+/// <param name="id">线程ID，对应质点的2D坐标</param>
+[numthreads(THREAD_X, THREAD_Y, 1)]
+void StepV (uint3 id : SV_DispatchThreadID)
+{
+    stepVelocity(id.xy);
+}
+
+/// <summary>
+/// 位置更新Kernel - 根据速度更新位置
+/// 每个线程处理一个质点，但固定肩膀位置的一行
+/// </summary>
+/// <param name="id">线程ID，对应质点的2D坐标</param>
+[numthreads(THREAD_X, THREAD_Y, 1)]
+void StepP (uint3 id : SV_DispatchThreadID)
+{
+    // 固定肩膀位置的一行：第一行(id.y == 0)
+    // 这样披风就会固定在肩膀上
+    if(id.y == 0){
+        // 将固定点位置设置为人物肩膀位置
+        uint index = getIndex(id.xy);
+        float widthRatio = (float)id.x / (size.x - 1);  // 0到1
+        float currentWidth = 0.6f;  // 肩膀宽度
+        
+        // 计算相对于肩膀的位置
+        float x = (widthRatio - 0.5f) * currentWidth;
+        float y = 0;  // 肩膀高度
+        float z = 0;
+        
+        // 设置固定点位置
+        positions[index] = float4(characterPosition + float3(x, y, z), 0);
+        return;  // 跳过位置更新
+    }
+    
+    stepPosition(id.xy);
+}
