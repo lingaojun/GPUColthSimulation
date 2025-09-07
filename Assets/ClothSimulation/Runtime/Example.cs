@@ -22,7 +22,14 @@ public class Example : MonoBehaviour
     /// 包括：风力、弹性系数、质量、时间步长等
     /// </summary>
     [SerializeField]
-    private ClothSimulation.SimulateSetting _setting = new ClothSimulation.SimulateSetting();
+    private ClothSimulation.SimulateSetting _setting = new ClothSimulation.SimulateSetting()
+    {
+        wind = new Vector3(0, 0, 0),                    // 无风力
+        windMultiplyAtNormal = 0.0f,                       // 风力法线乘数
+        springKs = new Vector3(50000, 50000, 50000),    // 增加弹簧系数，让布料更坚固
+        mass = 2.0f,                                     // 增加质量，提高稳定性
+        stepTime = 0.001f                                // 减小时间步长，提高稳定性
+    };
 
     /// <summary>
     /// 碰撞球体 - 布料会与这个球体发生碰撞

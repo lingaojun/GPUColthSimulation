@@ -67,7 +67,7 @@ public class ClothSimulation
     }
 
     /// <summary>布料物理尺寸 - 布料网格在3D空间中的实际大小</summary>
-    private float _clothSize = 4;
+    private float _clothSize = 1.1f;
 
     /// <summary>当前模拟参数设置</summary>
     private SimulateSetting _simulateSetting = new SimulateSetting();
@@ -88,8 +88,8 @@ public class ClothSimulation
 
     /// <summary>总质点数量 - 等于 _vertexCountPerDim * _vertexCountPerDim</summary>
     private int _totalVertexCount;
-    /// <summary>每个维度的质点数量 - 32x32网格 = 1024个质点</summary>
-    private int _vertexCountPerDim = 32;
+    /// <summary>每个维度的质点数量 - 8x8网格 = 64个质点</summary>
+    private int _vertexCountPerDim = 8;
 
     /// <summary>初始化状态标志 - 确保在初始化完成前不进行渲染</summary>
     private bool _initialized = false;
@@ -164,8 +164,12 @@ public class ClothSimulation
             Vector3 characterPos = _character.transform.position;
             Vector3 shoulderPos = characterPos + new Vector3(0, 1.9f, 0);
             
-            // 将人物位置传递给GPU
+            // 获取人物旋转信息
+            Quaternion characterRot = _character.transform.rotation;
+            
+            // 将人物位置和旋转传递给GPU
             CS.SetVector("characterPosition", shoulderPos);
+            CS.SetVector("characterRotation", new Vector4(characterRot.x, characterRot.y, characterRot.z, characterRot.w));
         }
     }
  

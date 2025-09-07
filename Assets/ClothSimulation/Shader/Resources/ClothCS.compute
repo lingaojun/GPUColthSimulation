@@ -38,7 +38,7 @@ uniform float3 restLengths;
 uniform float mass;
 
 /// <summary>阻尼系数 - 模拟能量耗散</summary>
-#define Cd 0.5
+#define Cd 1.5
 
 /// <summary>风力参数 - xyz=风向和强度, w=法线乘数</summary>
 float4 viscousFluidArgs;
@@ -63,6 +63,9 @@ uniform float4 collisionBall;
 
 /// <summary>人物肩膀位置 - 用于披风固定点</summary>
 uniform float3 characterPosition;
+
+/// <summary>人物旋转四元数 - 用于披风固定点旋转</summary>
+uniform float4 characterRotation;
 
 
 
@@ -155,6 +158,21 @@ static bool isValidateId(uint2 id){
     return id.x >= 0 && id.x < size.x && id.y >= 0 && id.y < size.y;
 }
 
+/// <summary>使用四元数旋转向量</summary>
+/// <param name="v">要旋转的向量</param>
+/// <param name="q">旋转四元数 (x,y,z,w)</param>
+/// <returns>旋转后的向量</returns>
+static float3 rotateVector(float3 v, float4 q){
+    // 四元数旋转公式: v' = q * v * q^-1
+    // 简化的四元数旋转实现
+    float3 qv = float3(q.x, q.y, q.z);
+    float qw = q.w;
+    
+    // 计算旋转后的向量
+    float3 result = v + 2.0 * cross(qv, cross(qv, v) + qw * v);
+    return result;
+}
+
 // ========================================
 // 物理计算函数
 // ========================================
@@ -207,10 +225,10 @@ static float3 calculateF(uint2 id, float3 position, float3 velocity){
     float3 fg = float3(0, -9.8, 0) * M;  // 重力加速度 * 质量
     f += fg;
 
-    // 4. 风力 - 基于法线方向的风力模拟
-    float3 normal = getNormal(index);
-    float3 fv = Cv * (dot(normal, Uf - velocity)) * normal;
-    f += fv;
+    // 4. 风力 - 基于法线方向的风力模拟（已禁用）
+    // float3 normal = getNormal(index);
+    // float3 fv = Cv * (dot(normal, Uf - velocity)) * normal;
+    // f += fv;
 
     return f;
 }
@@ -348,12 +366,12 @@ void Init (uint3 id : SV_DispatchThreadID)
 {
     uint index = getIndex(id.xy);
     
-    // 计算披风形状：从肩膀的窄处到下方的宽处
+    // 计算披风形状：固定宽度的矩形披风
     float widthRatio = (float)id.x / (size.x - 1);  // 0到1
     float lengthRatio = (float)id.y / (size.y - 1); // 0到1
     
-    // 计算披风宽度：从肩膀的窄处到下方的宽处
-    float currentWidth = 0.6f + 1.4f * lengthRatio;  // 从0.6到2.0
+    // 计算披风宽度：固定为肩膀宽度
+    float currentWidth = 1.1f;  // 设置宽度为1.1
     
     // 计算位置：以肩膀为中心，向下展开
     float x = (widthRatio - 0.5f) * currentWidth;
@@ -395,15 +413,20 @@ void StepP (uint3 id : SV_DispatchThreadID)
         // 将固定点位置设置为人物肩膀位置
         uint index = getIndex(id.xy);
         float widthRatio = (float)id.x / (size.x - 1);  // 0到1
-        float currentWidth = 0.6f;  // 肩膀宽度
+        float currentWidth = 1.1f;  // 肩膀宽度，与披风宽度一致
         
-        // 计算相对于肩膀的位置
-        float x = (widthRatio - 0.5f) * currentWidth;
-        float y = 0;  // 肩膀高度
-        float z = 0;
+        // 计算相对于肩膀的局部位置
+        float3 localPos = float3(
+            (widthRatio - 0.5f) * currentWidth,  // x: 左右位置
+            0,                                    // y: 肩膀高度
+            0                                     // z: 前后位置
+        );
         
-        // 设置固定点位置
-        positions[index] = float4(characterPosition + float3(x, y, z), 0);
+        // 应用人物旋转到局部位置
+        float3 rotatedPos = rotateVector(localPos, characterRotation);
+        
+        // 设置固定点位置（肩膀位置 + 旋转后的局部位置）
+        positions[index] = float4(characterPosition + rotatedPos, 0);
         return;  // 跳过位置更新
     }
     
