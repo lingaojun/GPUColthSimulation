@@ -153,6 +153,9 @@ public class Example : MonoBehaviour
         // 创建背部碰撞体
         CreateBackCollider(); // 重新启用背部碰撞体
         
+        // 创建布料绑定点标记球
+        CreateClothBindingMarkers();
+        
         // 设置人物材质
         SetupCharacterMaterial();
         
@@ -281,6 +284,64 @@ public class Example : MonoBehaviour
         renderer.material = backMaterial;
         
         Debug.Log($"背部碰撞体创建完成！位置: {backCollider.transform.position}, 尺寸: {backCollider.transform.localScale}");
+    }
+    
+    /// <summary>
+    /// 创建布料绑定点标记球 - 显示布料固定点的位置
+    /// </summary>
+    private void CreateClothBindingMarkers()
+    {
+        // 获取布料网格尺寸（与Compute Shader中的size一致）
+        int clothWidth = 8;  // 与Compute Shader中的_vertexCountPerDim一致
+        int clothHeight = 8;
+        
+        // 创建标记球容器
+        GameObject markerContainer = new GameObject("ClothBindingMarkers");
+        markerContainer.transform.SetParent(character.transform);
+        
+        // 创建红色材质
+        Material markerMaterial = new Material(Shader.Find("Standard"));
+        markerMaterial.color = Color.red;
+        markerMaterial.SetFloat("_Metallic", 0.0f);
+        markerMaterial.SetFloat("_Glossiness", 0.8f);
+        
+        // 为第一行（固定点）创建标记球
+        for (int x = 0; x < clothWidth; x++)
+        {
+            GameObject marker = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            marker.name = $"BindingMarker_{x}";
+            marker.transform.SetParent(markerContainer.transform);
+            
+            // 设置标记球尺寸
+            marker.transform.localScale = Vector3.one * 0.1f; // 直径0.1米
+            
+            // 计算标记球位置（与Compute Shader中的计算一致）
+            float widthRatio = (float)x / (clothWidth - 1);  // 0到1
+            float currentWidth = 1.1f;  // 肩膀宽度，与Compute Shader一致
+            
+            // 计算相对于肩膀的局部位置
+            Vector3 localPos = new Vector3(
+                (widthRatio - 0.5f) * currentWidth,  // x: 左右位置
+                1.9f,                                 // y: 肩膀高度
+                -0.5f                                 // z: 前后位置，向后0.5米
+            );
+            
+            // 设置标记球位置
+            marker.transform.localPosition = localPos;
+            
+            // 应用红色材质
+            Renderer renderer = marker.GetComponent<Renderer>();
+            renderer.material = markerMaterial;
+            
+            // 移除碰撞体，避免干扰
+            Collider collider = marker.GetComponent<Collider>();
+            if (collider != null)
+            {
+                DestroyImmediate(collider);
+            }
+        }
+        
+        Debug.Log($"布料绑定点标记球创建完成！共{clothWidth}个标记球");
     }
     
 
