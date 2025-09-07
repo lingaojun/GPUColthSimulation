@@ -67,6 +67,10 @@ uniform float3 characterPosition;
 /// <summary>人物旋转四元数 - 用于披风固定点旋转</summary>
 uniform float4 characterRotation;
 
+/// <summary>背部碰撞体参数</summary>
+uniform float4 backColliderCenter;  // xyz=位置, w=未使用
+uniform float4 backColliderSize;    // xyz=尺寸, w=未使用
+
 
 
 // ========================================
@@ -282,6 +286,59 @@ static void updateNormal(uint2 id){
 }
 
 /// <summary>
+/// 检测和处理背部碰撞体碰撞
+/// 当质点进入背部碰撞体内部时，将其推出
+/// </summary>
+/// <param name="id">质点2D坐标</param>
+static void detectBackCollision(uint2 id){
+    uint index = getIndex(id);
+    float3 pos = getPosition(index);
+    
+    // 获取背部碰撞体的中心位置和尺寸
+    float3 center = backColliderCenter.xyz;
+    float3 size = backColliderSize.xyz;
+    
+    // 计算质点相对于碰撞体中心的偏移
+    float3 offset = pos - center;
+    
+    // 检查是否在碰撞体内部
+    bool inside = (abs(offset.x) < size.x * 0.5f) && 
+                  (abs(offset.y) < size.y * 0.5f) && 
+                  (abs(offset.z) < size.z * 0.5f);
+    
+    if(inside){
+        // 计算到碰撞体表面的最短距离
+        float3 penetration = float3(
+            abs(offset.x) - size.x * 0.5f,
+            abs(offset.y) - size.y * 0.5f,
+            abs(offset.z) - size.z * 0.5f
+        );
+        
+        // 找到最小的穿透距离
+        float minPenetration = min(min(penetration.x, penetration.y), penetration.z);
+        
+        // 将质点推出到表面
+        float3 normal = float3(0, 0, 0);
+        if(penetration.x == minPenetration){
+            normal = float3(sign(offset.x), 0, 0);
+        } else if(penetration.y == minPenetration){
+            normal = float3(0, sign(offset.y), 0);
+        } else {
+            normal = float3(0, 0, sign(offset.z));
+        }
+        
+        // 推出质点
+        pos = center + normal * size * 0.5f;
+        setPosition(index, pos);
+        
+        // 清除速度的法线分量
+        float3 velocity = getVelocity(index);
+        velocity = velocity - dot(velocity, normal) * normal;
+        setVelocity(index, velocity);
+    }
+}
+
+/// <summary>
 /// 检测和处理球形碰撞
 /// 当质点进入球体内部时，将其推出并反射速度
 /// </summary>
@@ -342,7 +399,9 @@ static void stepPosition(uint2 id){
     position += velocity * dt;       // 更新位置 x = x + v*dt
     setPosition(index, position);    // 存储新位置
     
-    detechBallCollision(id);         // 检测和处理碰撞
+    // 检测和处理碰撞
+    //detectBackCollision(id);         // 检测背部碰撞体
+    detechBallCollision(id);         // 检测球形碰撞
 }
 
 
@@ -418,14 +477,14 @@ void StepP (uint3 id : SV_DispatchThreadID)
         // 计算相对于肩膀的局部位置
         float3 localPos = float3(
             (widthRatio - 0.5f) * currentWidth,  // x: 左右位置
-            0,                                    // y: 肩膀高度
-            0                                     // z: 前后位置
+            1.9f,                                 // y: 肩膀高度
+            -0.5f                                 // z: 前后位置，向后0.5米
         );
         
         // 应用人物旋转到局部位置
         float3 rotatedPos = rotateVector(localPos, characterRotation);
         
-        // 设置固定点位置（肩膀位置 + 旋转后的局部位置）
+        // 设置固定点位置（人物基础位置 + 旋转后的局部偏移）
         positions[index] = float4(characterPosition + rotatedPos, 0);
         return;  // 跳过位置更新
     }

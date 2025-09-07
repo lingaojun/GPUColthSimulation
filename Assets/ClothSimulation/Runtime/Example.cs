@@ -150,6 +150,9 @@ public class Example : MonoBehaviour
         CreateCharacterArms();
         CreateCharacterLegs();
         
+        // 创建背部碰撞体
+        CreateBackCollider(); // 重新启用背部碰撞体
+        
         // 设置人物材质
         SetupCharacterMaterial();
         
@@ -248,6 +251,38 @@ public class Example : MonoBehaviour
         rightHand.transform.localPosition = new Vector3(1.4f, 0.9f, 0);
         rightHand.transform.localScale = new Vector3(0.2f, 0.2f, 0.2f);
     }
+
+    /// <summary>
+    /// 创建背部碰撞体 - 防止布料穿模
+    /// </summary>
+    private void CreateBackCollider()
+    {
+        // 使用Unity内置的立方体创建背部碰撞体
+        GameObject backCollider = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        backCollider.name = "BackCollider";
+        backCollider.transform.SetParent(character.transform);
+        backCollider.transform.localPosition = new Vector3(0, 1.5f, -0.2f); // 在背部位置，更靠近人物
+        backCollider.transform.localScale = new Vector3(1.2f, 2.0f, 0.05f); // 覆盖整个背部，调薄一点
+        
+        // 设置透明材质
+        Material backMaterial = new Material(Shader.Find("Standard"));
+        backMaterial.color = new Color(1, 0, 0, 0.5f); // 半透明红色，便于调试
+        backMaterial.SetFloat("_Mode", 3); // 设置为透明模式
+        backMaterial.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+        backMaterial.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+        backMaterial.SetInt("_ZWrite", 0);
+        backMaterial.DisableKeyword("_ALPHATEST_ON");
+        backMaterial.EnableKeyword("_ALPHABLEND_ON");
+        backMaterial.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+        backMaterial.renderQueue = 3000;
+        
+        // 应用材质
+        Renderer renderer = backCollider.GetComponent<Renderer>();
+        renderer.material = backMaterial;
+        
+        Debug.Log($"背部碰撞体创建完成！位置: {backCollider.transform.position}, 尺寸: {backCollider.transform.localScale}");
+    }
+    
 
     /// <summary>
     /// 创建人物腿部（左腿和右腿）

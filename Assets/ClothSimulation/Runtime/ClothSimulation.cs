@@ -164,16 +164,35 @@ public class ClothSimulation
     /// </summary>
     private void UpdateCharacterPosition(){
         if(_character != null){
-            // 获取人物肩膀位置（肩膀在人物上方1.9米处）
+            // 获取人物基础位置和旋转信息
             Vector3 characterPos = _character.transform.position;
-            Vector3 shoulderPos = characterPos + new Vector3(0, 1.9f, 0);
-            
-            // 获取人物旋转信息
             Quaternion characterRot = _character.transform.rotation;
             
-            // 将人物位置和旋转传递给GPU
-            CS.SetVector("characterPosition", shoulderPos);
+            // 将人物基础位置和旋转传递给GPU
+            CS.SetVector("characterPosition", characterPos);
             CS.SetVector("characterRotation", new Vector4(characterRot.x, characterRot.y, characterRot.z, characterRot.w));
+            
+            // 更新背部碰撞体参数
+            //UpdateBackCollider(); // 重新启用背部碰撞体更新
+        }
+    }
+    
+    /// <summary>
+    /// 更新背部碰撞体参数到GPU
+    /// </summary>
+    private void UpdateBackCollider(){
+        if(_character != null){
+            // 查找背部碰撞体
+            Transform backCollider = _character.transform.Find("BackCollider");
+            if(backCollider != null){
+                // 获取世界位置和尺寸
+                Vector3 worldPos = backCollider.position;
+                Vector3 worldScale = backCollider.lossyScale;
+                
+                // 传递给GPU
+                CS.SetVector("backColliderCenter", new Vector4(worldPos.x, worldPos.y, worldPos.z, 0));
+                CS.SetVector("backColliderSize", new Vector4(worldScale.x, worldScale.y, worldScale.z, 0));
+            }
         }
     }
  
