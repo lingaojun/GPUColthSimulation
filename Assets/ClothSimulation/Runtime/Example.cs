@@ -156,6 +156,9 @@ public class Example : MonoBehaviour
         // 创建布料绑定点标记球
         CreateClothBindingMarkers();
         
+        // 设置越肩视角摄像头
+        SetupOverShoulderCamera();
+        
         // 设置人物材质
         SetupCharacterMaterial();
         
@@ -342,6 +345,47 @@ public class Example : MonoBehaviour
         }
         
         Debug.Log($"布料绑定点标记球创建完成！共{clothWidth}个标记球");
+    }
+    
+    /// <summary>
+    /// 设置越肩视角摄像头
+    /// </summary>
+    private void SetupOverShoulderCamera()
+    {
+        // 获取主摄像头
+        Camera mainCamera = Camera.main;
+        if (mainCamera == null)
+        {
+            // 如果没有主摄像头，创建一个
+            GameObject cameraObj = new GameObject("Main Camera");
+            mainCamera = cameraObj.AddComponent<Camera>();
+            cameraObj.tag = "MainCamera";
+        }
+        
+        // 设置摄像头位置（越肩视角）
+        mainCamera.transform.SetParent(character.transform);
+        mainCamera.transform.localPosition = new Vector3(4.0f, 4.0f, 5.0f); // 右肩后方5米
+        mainCamera.transform.localRotation = Quaternion.Euler(0f, 0f, 0f); // 初始朝向
+        
+        // 设置摄像头参数
+        mainCamera.fieldOfView = 60f;
+        mainCamera.nearClipPlane = 0.1f;
+        mainCamera.farClipPlane = 1000f;
+        
+        // 添加摄像头控制脚本
+        OverShoulderCameraController cameraController = mainCamera.gameObject.GetComponent<OverShoulderCameraController>();
+        if (cameraController == null)
+        {
+            cameraController = mainCamera.gameObject.AddComponent<OverShoulderCameraController>();
+        }
+        
+        // 设置摄像头控制参数
+        cameraController.target = character.transform;
+        cameraController.offset = new Vector3(0.5f, 1.8f, 5.0f);
+        cameraController.rotationSpeed = 2f;
+        cameraController.movementSpeed = 5f;
+        
+        Debug.Log("越肩视角摄像头设置完成！");
     }
     
 
