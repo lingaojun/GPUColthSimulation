@@ -364,7 +364,7 @@ public class Example : MonoBehaviour
         
         // 设置摄像头位置（越肩视角）
         mainCamera.transform.SetParent(character.transform);
-        mainCamera.transform.localPosition = new Vector3(4.0f, 4.0f, 5.0f); // 右肩后方5米
+        mainCamera.transform.localPosition = new Vector3(4.0f, 6.0f, -5.0f); // 右肩后方5米，高度6米
         mainCamera.transform.localRotation = Quaternion.Euler(0f, 0f, 0f); // 初始朝向
         
         // 设置摄像头参数
@@ -381,7 +381,7 @@ public class Example : MonoBehaviour
         
         // 设置摄像头控制参数
         cameraController.target = character.transform;
-        cameraController.offset = new Vector3(0.5f, 1.8f, 5.0f);
+        cameraController.offset = new Vector3(0.5f, 6.0f, -5.0f);
         cameraController.rotationSpeed = 2f;
         cameraController.movementSpeed = 5f;
         
