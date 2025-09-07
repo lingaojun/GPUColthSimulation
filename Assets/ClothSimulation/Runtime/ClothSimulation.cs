@@ -27,10 +27,10 @@ public class ClothSimulation
         public float windMultiplyAtNormal = 0f;
         
         /// <summary>弹簧弹性系数 - x=结构弹簧, y=剪力弹簧, z=弯曲弹簧</summary>
-        public Vector3 springKs = new Vector3(25000,25000,25000);
+        public Vector3 springKs = new Vector3(1000000,1000000,1000000);
         
         /// <summary>单个质点的质量 - 影响重力和惯性</summary>
-        public float mass = 1;
+        public float mass = 20;
         
         /// <summary>物理模拟时间步长 - 越小越稳定但计算量越大</summary>
         public float stepTime = 0.003f;
@@ -120,7 +120,9 @@ public class ClothSimulation
     /// </summary>
     /// <param name="setting">新的模拟参数</param>
     public void UpdateSimulateSetting(SimulateSetting setting){
+        Debug.Log($"接收到新的SimulateSetting，质量: {setting.mass}");
         _simulateSetting = setting;
+        Debug.Log($"设置后的_simulateSetting质量: {_simulateSetting.mass}");
         this.UpdateSimulateSetting();
     }
     
@@ -137,6 +139,8 @@ public class ClothSimulation
         CS.SetVector("viscousFluidArgs", viscousFluidArgs);  // 风力参数
         CS.SetVector("springKs", _simulateSetting.springKs); // 弹性系数
         CS.SetFloat("mass", _simulateSetting.mass);          // 质点质量
+        
+        Debug.Log($"传递给GPU的质量参数: {_simulateSetting.mass}");
     }
 
     /// <summary>
@@ -290,6 +294,12 @@ public class ClothSimulation
     public IEnumerator StartAsync(){
         // 1. 等待初始化完成
         yield return Initialize();
+        
+        // 2. 重新应用模拟参数（确保Initialize()没有覆盖我们的设置）
+        this.UpdateSimulateSetting();
+        
+        // 调试：验证GPU中的质量参数
+        Debug.Log($"GPU中的质量参数: {_simulateSetting.mass}");
         
         float dt = 0;                                    // 累计时间
         float minDt = _simulateSetting.stepTime;         // 最小时间步长 (0.003s)

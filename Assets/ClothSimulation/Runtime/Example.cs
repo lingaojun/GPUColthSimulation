@@ -26,9 +26,9 @@ public class Example : MonoBehaviour
     {
         wind = new Vector3(0, 0, 0),                    // 无风力
         windMultiplyAtNormal = 0.0f,                       // 风力法线乘数
-        springKs = new Vector3(50000, 50000, 50000),    // 增加弹簧系数，让布料更坚固
-        mass = 2.0f,                                     // 增加质量，提高稳定性
-        stepTime = 0.001f                                // 减小时间步长，提高稳定性
+        springKs = new Vector3(1000000, 1000000, 1000000), // 极大增加弹簧系数，几乎不可拉伸
+        mass = 20.0f,                                    // 增加质量到十倍，提高稳定性
+        stepTime = 0.0005f                               // 进一步减小时间步长，提高数值稳定性
     };
 
     /// <summary>
@@ -63,8 +63,15 @@ public class Example : MonoBehaviour
         // 再创建人物
         CreateCharacter();
         
+        // 强制设置质量参数为20 (减少质量，提高响应速度)
+        _setting.mass = 20.0f;
+        Debug.Log($"强制设置后的质量参数: {_setting.mass}");
+        
         // 应用模拟参数设置
         _simulate.UpdateSimulateSetting(_setting);
+        
+        // 调试：验证质量参数
+        Debug.Log($"当前质量参数: {_setting.mass}");
         
         // 设置人物到布料模拟器
         _simulate.SetCharacter(character);

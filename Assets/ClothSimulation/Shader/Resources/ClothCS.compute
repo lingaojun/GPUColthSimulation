@@ -38,7 +38,7 @@ uniform float3 restLengths;
 uniform float mass;
 
 /// <summary>阻尼系数 - 模拟能量耗散</summary>
-#define Cd 1.5
+#define Cd 100.0f
 
 /// <summary>风力参数 - xyz=风向和强度, w=法线乘数</summary>
 float4 viscousFluidArgs;
